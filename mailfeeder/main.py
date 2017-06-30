@@ -1,5 +1,6 @@
 import os
 import sys
+import email
 import argparse
 import datetime
 import ConfigParser
@@ -7,17 +8,21 @@ import ConfigParser
 import notmuch
 import PyRSS2Gen
 
+def flatten_body(msg):
+    body = ""
+    data = msg.get_payload()
+    if type(data) == list:
+        for item in data:
+            body += flatten_body(item)
+    else:
+        body += data
+    return body
+
 def main():
     parser = argparse.ArgumentParser(description="")
     parser.add_argument(
         '--configuration',
         help='configuration file to use',
-        action='store',
-    )
-    parser.add_argument(
-        'mailbox',
-        help='directory containing the notmuch mail database',
-        metavar='<notmuch db path>',
         action='store',
     )
     parser.add_argument(
@@ -29,16 +34,29 @@ def main():
 
     args = parser.parse_args()
 
-    configuration = ConfigParser.ConfigParser(args.configuration)
-    database = notmuch.Database(args.mailbox)
+    configuration = ConfigParser.ConfigParser()
+    configuration.read(args.configuration)
+    os.environ['NOTMUCH_CONFIG'] = os.path.expanduser(configuration.get('settings', 'notmuch_config'))
+    database = notmuch.Database()
 
-    for (name, options) in configurion.items():
+    for name in configuration.sections():
         if name == 'settings': continue
         
-        message_query = notmuch.Query(database, configuration.get(name, 'query')).search_messages()
+        message_query = notmuch.Query(database, configuration.get(name, 'query'))
+        message_query.set_sort(notmuch.Query.SORT.NEWEST_FIRST)
+        messages = message_query.search_messages()
         feed_items = []
-        for message in message_query:
-            print(message)
+        for message in messages:
+            item_contents = ""
+            for file_path in message.get_filenames():
+                msg = email.message_from_file(open(file_path, 'r'))
+                item_contents += "\n"
+                item_contents += flatten_body(msg)
+            item = PyRSS2Gen.RSSItem(
+                title = message.get_header("Subject"),
+                description = item_contents,
+            )
+            feed_items.append(item)
 
         feed = PyRSS2Gen.RSS2(
             title = configuration.get(name, 'name'),
@@ -48,9 +66,8 @@ def main():
             items = feed_items
         )
 
-        print(feed)
-#        feed_path = os.path.join(args.output, name+'.xml')
-#        feed.write_xml(open(feed_path, 'w+'))
+        feed_path = os.path.join(args.output, name+'.xml')
+        feed.write_xml(open(feed_path, 'w+'))
     
 
 if __name__ == '__main__':
