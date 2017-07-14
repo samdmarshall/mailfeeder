@@ -1,5 +1,6 @@
 import os
 import sys
+import uuid
 import email
 import argparse
 import datetime
@@ -16,6 +17,7 @@ def flatten_body(msg):
             body += flatten_body(item)
     else:
         body += data
+    body = body.replace('=\n', '')
     return body
 
 def main():
@@ -55,6 +57,7 @@ def main():
             item = PyRSS2Gen.RSSItem(
                 title = message.get_header("Subject"),
                 description = item_contents,
+                guid = PyRSS2Gen.Guid(message.get_message_id()),
             )
             feed_items.append(item)
 
